@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fair Price Engine</title>
+  <meta property="og:type"        content="website" />
+  <meta property="og:title"       content="Fair Price Engine — See Any Price in Tokens" />
+  <meta property="og:description" content="Point at anything. Know the real cost. See it in Claude tokens." />
+  <style>
+    :root {
+      --bg:      #0d0d0d;
+      --surface: #141414;
+      --border:  #252525;
+      --text:    #e2e2e2;
+      --muted:   #555;
+      --accent:  #7ec8e3;
+      --green:   #4ade80;
+      --yellow:  #facc15;
+      --red:     #f87171;
+      --purple:  #a78bfa;
+      --orange:  #fb923c;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      min-height: 100vh; display: flex; flex-direction: column;
+    }
+    header {
+      padding: 20px 32px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .brand { font-size: 18px; font-weight: 700; color: var(--accent); }
+    .brand span { color: var(--muted); font-weight: 400; font-size: 14px; margin-left: 10px; }
+    main { max-width: 720px; margin: 0 auto; padding: 32px 20px; width: 100%; flex: 1; }
+
+    /* ── Shared ─────────────────────────────────────────── */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px;
+    }
+    .label { font-size: 11px; font-weight: 700; letter-spacing: .08em;
+             color: var(--muted); text-transform: uppercase; margin-bottom: 6px; }
+    button {
+      padding: 11px 20px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text); font-size: 14px;
+      font-weight: 600; cursor: pointer; transition: background .15s;
+    }
+    button:active { background: #1e1e1e; }
+    button.primary {
+      background: var(--accent); color: #000; border-color: var(--accent);
+    }
+    button.primary:active { background: #6ab8d4; }
+    .hidden { display: none !important; }
+    .spinner {
+      width: 32px; height: 32px; border: 3px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin .8s linear infinite; margin: 40px auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── State 0: Upload ─────────────────────────────────── */
+    #drop-zone {
+      border: 2px dashed var(--border); border-radius: 10px; padding: 48px 24px;
+      text-align: center; cursor: pointer; transition: border-color .2s;
+      margin-bottom: 16px; position: relative;
+    }
+    #drop-zone:hover, #drop-zone.drag { border-color: var(--accent); }
+    #drop-zone input[type=file] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    #drop-zone img { max-height: 120px; max-width: 100%; border-radius: 6px; margin-bottom: 8px; }
+    .drop-hint { color: var(--muted); font-size: 14px; }
+    .price-row { display: flex; gap: 10px; align-items: flex-end; margin-top: 4px; }
+    .price-row input {
+      flex: 1; padding: 10px 14px; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px; font-size: 16px;
+    }
+    .price-row input:focus { outline: none; border-color: var(--accent); }
+
+    /* ── State 2: Confidence Gate ─────────────────────────── */
+    #gate-name {
+      font-size: 28px; font-weight: 700; margin-bottom: 6px; color: var(--text);
+    }
+    .gate-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .badge {
+      font-size: 11px; padding: 3px 10px; border-radius: 20px;
+      background: var(--border); color: var(--muted); font-weight: 600;
+    }
+    .conf-bar-wrap { margin: 12px 0; }
+    .conf-track { height: 6px; background: var(--border); border-radius: 3px; margin-top: 4px; }
+    .conf-fill  { height: 100%; border-radius: 3px; background: var(--accent); transition: width .4s; }
+    #edit-row { display: flex; gap: 8px; margin-top: 14px; }
+    #edit-name {
+      flex: 1; padding: 9px 12px; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 7px; font-size: 14px;
+    }
+    #edit-name:focus { outline: none; border-color: var(--accent); }
+    .gate-actions { display: flex; gap: 10px; margin-top: 14px; }
+
+    /* ── State 4: Results ────────────────────────────────── */
+    #results-header { margin-bottom: 20px; }
+    #item-name { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+    .overpay-badge {
+      display: inline-block; padding: 4px 12px; border-radius: 20px;
+      background: rgba(248,113,113,.15); color: var(--red);
+      font-size: 13px; font-weight: 700;
+    }
+
+    /* BOM bar chart */
+    #bom-chart { display: flex; flex-direction: column; gap: 10px; margin: 20px 0; }
+    .bom-row { display: flex; align-items: center; gap: 10px; }
+    .bom-label { font-size: 12px; color: var(--muted); width: 200px; flex-shrink: 0;
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bom-bar-wrap { flex: 1; background: var(--border); border-radius: 3px; height: 20px; overflow: hidden; }
+    .bom-bar {
+      height: 100%; border-radius: 3px; width: 0%;
+      animation: bar-grow .7s ease-out forwards;
+      animation-delay: calc(var(--i) * 0.12s);
+    }
+    @keyframes bar-grow { from { width: 0% } to { width: var(--w) } }
+    .bom-cost { font-size: 12px; color: var(--muted); width: 52px; text-align: right; flex-shrink: 0; }
+
+    /* ── Dual-token display — the viral section ──────────── */
+    #token-block {
+      border: 1px solid var(--border); border-radius: 10px;
+      overflow: hidden; margin: 20px 0;
+    }
+    .token-row {
+      display: flex; align-items: center; padding: 14px 18px;
+      border-bottom: 1px solid var(--border); gap: 12px;
+    }
+    .token-row:last-child { border-bottom: none; }
+    .token-row.markup-row {
+      background: rgba(248,113,113,.07); border-color: rgba(248,113,113,.2);
+      animation: markup-pulse 2.5s ease-in-out 1s 3;
+    }
+    @keyframes markup-pulse {
+      0%,100% { background: rgba(248,113,113,.07); }
+      50%      { background: rgba(248,113,113,.14); }
+    }
+    .tr-label { font-size: 11px; color: var(--muted); font-weight: 700;
+                letter-spacing: .06em; text-transform: uppercase; width: 100px; flex-shrink: 0; }
+    .tr-price { font-size: 18px; font-weight: 700; width: 72px; flex-shrink: 0; }
+    .tr-arrow { color: var(--muted); flex-shrink: 0; }
+    .tr-tokens { font-size: 22px; font-weight: 800; flex: 1; }
+    .tr-unit   { font-size: 12px; color: var(--muted); }
+    .token-row.markup-row .tr-tokens { color: var(--red); }
+    .token-row.markup-row .tr-price  { color: var(--red); }
+    .token-row:not(.markup-row):first-child .tr-price  { color: var(--text); }
+    .token-row:not(.markup-row):last-of-type .tr-price  { color: var(--green); }
+    .token-row:not(.markup-row):last-of-type .tr-tokens { color: var(--green); }
+
+    /* Viral quote */
+    #viral-quote {
+      font-size: 18px; font-weight: 700; color: var(--red);
+      padding: 14px 0; border-top: 1px solid var(--border); margin-top: 4px;
+    }
+
+    /* Supporting equivalents */
+    #equivalents { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0; }
+    .equiv-card {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px 14px;
+    }
+    .equiv-val { font-size: 20px; font-weight: 700; color: var(--accent); }
+    .equiv-lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    /* Context string */
+    #ctx-str {
+      font-size: 13px; color: var(--muted); padding: 10px 14px;
+      background: var(--bg); border-radius: 8px; border: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+
+    /* Actions */
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    /* Leaderboard */
+    #leaderboard-section { margin-top: 32px; }
+    #lb-list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+    .lb-entry {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 14px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; font-size: 13px;
+    }
+    .lb-name { flex: 1; }
+    .lb-tokens { color: var(--red); font-weight: 700; margin-left: 12px; }
+    .lb-op     { color: var(--muted); font-size: 11px; margin-left: 8px; }
+
+    /* Toast */
+    #toast {
+      position: fixed; bottom: 24px; left: 50%;
+      transform: translateX(-50%) translateY(10px);
+      background: rgba(20,20,20,.97); border: 1px solid var(--border);
+      padding: 8px 20px; border-radius: 20px; font-size: 13px; color: var(--green);
+      opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; z-index: 99;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">fair-price-engine <span>see any price in tokens</span></div>
+  <a href="https://github.com/ninja-otaku/fair-price-engine"
+     style="font-size:12px;color:var(--muted);text-decoration:none;">★ Star on GitHub</a>
+</header>
+
+<main>
+
+  <!-- ═══ STATE 0: UPLOAD ════════════════════════════════════════ -->
+  <div id="s-upload">
+    <div class="label" style="margin-bottom:12px">Point at anything. Know the real cost.</div>
+    <div id="drop-zone">
+      <input type="file" id="file-input" accept="image/*" capture="environment" />
+      <img id="preview-img" class="hidden" alt="preview" />
+      <div class="drop-hint" id="drop-hint">
+        📷 Drop an image or tap to upload<br>
+        <span style="font-size:12px">furniture · appliances · home repair · apparel</span>
+      </div>
+    </div>
+    <div class="price-row">
+      <div style="flex:1">
+        <div class="label">Retail price (what the store charges)</div>
+        <input type="number" id="price-input" placeholder="$299" min="0" step="0.01" />
+      </div>
+      <button class="primary" onclick="runIdentify()">Analyze →</button>
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--muted)">
+      All analysis runs locally on your machine via Ollama. No data leaves your device.
+    </div>
+  </div>
+
+  <!-- ═══ STATE 1: IDENTIFYING ═══════════════════════════════════ -->
+  <div id="s-loading" class="hidden">
+    <div class="spinner"></div>
+    <div style="text-align:center;color:var(--muted);font-size:14px" id="loading-msg">
+      Identifying item…
+    </div>
+  </div>
+
+  <!-- ═══ STATE 2: CONFIDENCE GATE ═══════════════════════════════ -->
+  <div id="s-gate" class="hidden">
+    <div class="card">
+      <div class="label">Identified item — please confirm</div>
+      <div id="gate-name"></div>
+      <div class="gate-meta" id="gate-meta"></div>
+      <div class="conf-bar-wrap">
+        <div class="label">Confidence</div>
+        <div class="conf-track"><div class="conf-fill" id="gate-conf-fill"></div></div>
+      </div>
+      <div id="gate-note" style="font-size:13px;color:var(--yellow);margin-top:6px"></div>
+      <div id="edit-row">
+        <input type="text" id="edit-name" placeholder="Correct the item name if needed…" />
+      </div>
+      <div class="gate-actions">
+        <button class="primary" onclick="confirmGate()">✓ Correct — Analyze</button>
+        <button onclick="resetState()">✕ Start over</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ STATE 4: RESULTS ════════════════════════════════════════ -->
+  <div id="s-results" class="hidden">
+
+    <div id="results-header">
+      <div id="item-name"></div>
+      <span class="overpay-badge" id="overpay-badge"></span>
+    </div>
+
+    <!-- BOM animated bar chart -->
+    <div class="label">Cost breakdown (what it actually costs to make)</div>
+    <div id="bom-chart"></div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:4px" id="data-source-note"></div>
+
+    <!-- Dual-token display — THE viral section -->
+    <div class="label" style="margin-top:20px">Markup in tokens</div>
+    <div id="token-block"></div>
+    <div id="viral-quote"></div>
+
+    <!-- Supporting equivalents -->
+    <div id="equivalents"></div>
+    <div id="ctx-str"></div>
+
+    <!-- Actions -->
+    <div class="actions">
+      <button class="primary" onclick="shareResult()">🔗 Copy share link</button>
+      <button onclick="submitLeaderboard()">🏆 Add to leaderboard</button>
+      <button onclick="resetState()">↩ New analysis</button>
+    </div>
+
+    <!-- Leaderboard -->
+    <div id="leaderboard-section">
+      <div class="label" style="margin-top:8px">Hall of shame — most overpriced items scanned</div>
+      <div id="lb-list"></div>
+    </div>
+
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+// ── State ──────────────────────────────────────────────────────────
+let _result    = null;   // full API response
+let _itemJson  = null;   // confirmed ItemIdentification JSON string
+let _retailPrice = 0;
+let _imageFile = null;
+let _toastTmr;
+
+const BAR_COLORS = ["#7ec8e3","#a78bfa","#fb923c","#f87171","#4ade80","#facc15"];
+
+// ── Boot — check for ?result=BASE64 in URL ─────────────────────────
+(function bootFromUrl() {
+  const p = new URLSearchParams(location.search).get("result");
+  if (!p) return;
+  try {
+    const s = JSON.parse(atob(p));
+    renderFromSummary(s);
+  } catch (e) {
+    console.warn("Could not decode result param:", e);
+  }
+})();
+
+// ── File input ─────────────────────────────────────────────────────
+const dropZone  = document.getElementById("drop-zone");
+const fileInput = document.getElementById("file-input");
+const previewImg= document.getElementById("preview-img");
+const dropHint  = document.getElementById("drop-hint");
+
+fileInput.onchange = e => {
+  _imageFile = e.target.files[0];
+  if (_imageFile) {
+    const url = URL.createObjectURL(_imageFile);
+    previewImg.src = url;
+    previewImg.classList.remove("hidden");
+    dropHint.classList.add("hidden");
+  }
+};
+dropZone.addEventListener("dragover",  e => { e.preventDefault(); dropZone.classList.add("drag"); });
+dropZone.addEventListener("dragleave", ()  => dropZone.classList.remove("drag"));
+dropZone.addEventListener("drop", e => {
+  e.preventDefault(); dropZone.classList.remove("drag");
+  _imageFile = e.dataTransfer.files[0];
+  if (_imageFile) {
+    previewImg.src = URL.createObjectURL(_imageFile);
+    previewImg.classList.remove("hidden"); dropHint.classList.add("hidden");
+  }
+});
+
+// ── Identify ───────────────────────────────────────────────────────
+async function runIdentify() {
+  if (!_imageFile) return showToast("Please select an image first.");
+  const price = parseFloat(document.getElementById("price-input").value);
+  if (!price || price <= 0) return showToast("Please enter the retail price.");
+  _retailPrice = price;
+
+  showState("loading");
+  setLoadingMsg("Identifying item…");
+
+  const fd = new FormData();
+  fd.append("image", _imageFile);
+  fd.append("retail_price", _retailPrice);
+
+  try {
+    const resp = await fetch("/analyze", { method: "POST", body: fd });
+    const data = await resp.json();
+
+    if (resp.status === 202 && data.gate) {
+      // Confidence gate triggered
+      showGate(data.item);
+    } else if (resp.ok) {
+      _result = data;
+      renderResults(data);
+    } else {
+      showToast("Analysis failed: " + (data.detail || resp.statusText));
+      showState("upload");
+    }
+  } catch (e) {
+    showToast("Network error — is Ollama running?");
+    showState("upload");
+  }
+}
+
+// ── Gate ───────────────────────────────────────────────────────────
+function showGate(item) {
+  document.getElementById("gate-name").textContent = item.name;
+  document.getElementById("edit-name").value       = item.name;
+
+  const meta = document.getElementById("gate-meta");
+  meta.innerHTML = [item.grade, item.category, item.condition, item.material]
+    .filter(Boolean)
+    .map(v => `<span class="badge">${v}</span>`).join("");
+
+  const pct = Math.round((item.confidence || 0) * 100);
+  document.getElementById("gate-conf-fill").style.width = pct + "%";
+  document.getElementById("gate-note").textContent =
+    pct < 50
+      ? `Low confidence (${pct}%) — image may be unclear. Please verify the item name.`
+      : `${pct}% confidence — looks right? Hit Correct to continue.`;
+
+  _itemJson = JSON.stringify(item);
+  showState("gate");
+}
+
+async function confirmGate() {
+  const edited = document.getElementById("edit-name").value.trim();
+  if (edited && _itemJson) {
+    const item = JSON.parse(_itemJson);
+    item.name = edited;
+    _itemJson = JSON.stringify(item);
+  }
+
+  showState("loading");
+  setLoadingMsg("Decomposing cost structure…");
+
+  const fd = new FormData();
+  fd.append("retail_price", _retailPrice);
+  fd.append("item_json",    _itemJson);
+
+  try {
+    const resp = await fetch("/analyze", { method: "POST", body: fd });
+    const data = await resp.json();
+    if (resp.ok) {
+      _result = data;
+      renderResults(data);
+    } else {
+      showToast("Analysis failed."); showState("upload");
+    }
+  } catch (e) {
+    showToast("Network error."); showState("upload");
+  }
+}
+
+// ── Render results ─────────────────────────────────────────────────
+function renderResults(data) {
+  const b   = data.breakdown;
+  const d   = data.dual;
+  const item = data.item;
+
+  document.getElementById("item-name").textContent = item.name;
+  document.getElementById("overpay-badge").textContent =
+    `Overpaying ${b.overpay_pct.toFixed(1)}% · $${b.overpay_amount.toFixed(0)} extra`;
+
+  // BOM bar chart
+  const maxCost = Math.max(...b.bom.map(x => x.cost));
+  const chart = document.getElementById("bom-chart");
+  chart.innerHTML = b.bom.map((line, i) => {
+    const w = ((line.cost / maxCost) * 100).toFixed(1);
+    return `<div class="bom-row">
+      <div class="bom-label" title="${line.component}">${line.component}</div>
+      <div class="bom-bar-wrap">
+        <div class="bom-bar" style="--w:${w}%;--i:${i};background:${BAR_COLORS[i % BAR_COLORS.length]}"></div>
+      </div>
+      <div class="bom-cost">$${line.cost.toFixed(0)}</div>
+    </div>`;
+  }).join("");
+
+  document.getElementById("data-source-note").textContent =
+    `Data source: ${b.data_source} · Confidence: ${Math.round(b.confidence * 100)}%`;
+
+  // Dual-token display
+  const re = d.retail_equiv, fe = d.fair_equiv, me = d.markup_equiv;
+  document.getElementById("token-block").innerHTML = `
+    <div class="token-row">
+      <div class="tr-label">Retail</div>
+      <div class="tr-price">$${b.retail_price.toFixed(0)}</div>
+      <div class="tr-arrow">→</div>
+      <div>
+        <div class="tr-tokens">${fmtTokens(re.claude_tokens)}</div>
+        <div class="tr-unit">Claude tokens</div>
+      </div>
+    </div>
+    <div class="token-row">
+      <div class="tr-label">Fair price</div>
+      <div class="tr-price">$${b.fair_price_mid.toFixed(0)}</div>
+      <div class="tr-arrow">→</div>
+      <div>
+        <div class="tr-tokens">${fmtTokens(fe.claude_tokens)}</div>
+        <div class="tr-unit">Claude tokens</div>
+      </div>
+    </div>
+    <div class="token-row markup-row">
+      <div class="tr-label">Markup</div>
+      <div class="tr-price">$${b.overpay_amount.toFixed(0)}</div>
+      <div class="tr-arrow">→</div>
+      <div>
+        <div class="tr-tokens">${fmtTokens(me.claude_tokens)}</div>
+        <div class="tr-unit">extra tokens you're paying</div>
+      </div>
+    </div>`;
+
+  document.getElementById("viral-quote").textContent = data.viral_quote || "";
+
+  // Supporting equivalents
+  document.getElementById("equivalents").innerHTML = `
+    <div class="equiv-card">
+      <div class="equiv-val">${re.h100_hours.toFixed(0)}</div>
+      <div class="equiv-lbl">H100 GPU-hours</div>
+    </div>
+    <div class="equiv-card">
+      <div class="equiv-val">${fmtNum(re.ai_conversations)}</div>
+      <div class="equiv-lbl">AI conversations</div>
+    </div>
+    <div class="equiv-card">
+      <div class="equiv-val">${fmtNum(re.ai_image_gens)}</div>
+      <div class="equiv-lbl">AI-generated images</div>
+    </div>
+    <div class="equiv-card">
+      <div class="equiv-val">${fmtTokens(re.gpt4o_tokens)}</div>
+      <div class="equiv-lbl">GPT-4o tokens</div>
+    </div>`;
+
+  document.getElementById("ctx-str").textContent = re.context_str || "";
+
+  loadLeaderboard();
+  showState("results");
+}
+
+// Render from compact share summary (URL load)
+function renderFromSummary(s) {
+  const syntheticData = {
+    item:     { name: s.n, category: s.cat, confidence: 1 },
+    breakdown: {
+      retail_price:  s.r, fair_price_mid: s.f,
+      overpay_pct:   s.op, overpay_amount: s.oa,
+      bom: (s.bom || []).map(([component, cost, pct]) => ({ component, cost, pct_of_cost: pct })),
+      data_source: "shared link", confidence: 1,
+    },
+    dual: {
+      retail_equiv:  { claude_tokens: s.rc, gpt4o_tokens: Math.round(s.rc * 3/5), h100_hours: s.h, ai_conversations: s.cv, ai_image_gens: s.img || 0, context_str: s.ctx },
+      fair_equiv:    { claude_tokens: s.fc },
+      markup_equiv:  { claude_tokens: s.mc },
+    },
+    viral_quote: s.vq || "",
+  };
+  renderResults(syntheticData);
+}
+
+// ── Share ──────────────────────────────────────────────────────────
+async function shareResult() {
+  if (!_result) return;
+  const url = location.origin + (_result.share_url || "");
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast("Link copied! Share it on Twitter/Discord.");
+  } catch (_) {
+    prompt("Copy this link:", url);
+  }
+}
+
+async function submitLeaderboard() {
+  if (!_result) return;
+  const b = _result.breakdown;
+  const d = _result.dual;
+  await fetch("/leaderboard", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      item_name:     _result.item.name,
+      retail_price:  b.retail_price,
+      markup_tokens: d.markup_equiv.claude_tokens,
+      overpay_pct:   b.overpay_pct,
+    }),
+  });
+  showToast("Added to leaderboard!");
+  loadLeaderboard();
+}
+
+async function loadLeaderboard() {
+  try {
+    const data = await fetch("/leaderboard").then(r => r.json());
+    const list = document.getElementById("lb-list");
+    if (!data.entries.length) {
+      list.innerHTML = `<div style="color:var(--muted);font-size:13px">No entries yet — be the first.</div>`;
+      return;
+    }
+    list.innerHTML = data.entries.map((e, i) => `
+      <div class="lb-entry">
+        <span style="color:var(--muted);margin-right:8px">#${i+1}</span>
+        <span class="lb-name">${e.item_name}</span>
+        <span class="lb-tokens">${fmtTokens(e.markup_tokens)} tokens markup</span>
+        <span class="lb-op">${e.overpay_pct.toFixed(0)}% over</span>
+      </div>`).join("");
+  } catch (_) {}
+}
+
+// ── Helpers ────────────────────────────────────────────────────────
+function showState(s) {
+  ["upload","loading","gate","results"].forEach(id =>
+    document.getElementById(`s-${id}`).classList.toggle("hidden", id !== s));
+}
+function setLoadingMsg(m) {
+  document.getElementById("loading-msg").textContent = m;
+}
+function resetState() {
+  _result = _itemJson = _imageFile = null; _retailPrice = 0;
+  previewImg.classList.add("hidden"); dropHint.classList.remove("hidden");
+  document.getElementById("file-input").value = "";
+  document.getElementById("price-input").value = "";
+  history.replaceState(null, "", "/");
+  showState("upload");
+}
+function fmtTokens(n) {
+  if (n >= 1e9) return (n/1e9).toFixed(1)+"B";
+  if (n >= 1e6) return (n/1e6).toFixed(1)+"M";
+  if (n >= 1e3) return (n/1e3).toFixed(0)+"K";
+  return String(n);
+}
+function fmtNum(n) {
+  return n >= 1000 ? (n/1000).toFixed(0)+"K" : String(n);
+}
+function showToast(msg, ms=3000) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(_toastTmr);
+  _toastTmr = setTimeout(() => t.classList.remove("show"), ms);
+}
+</script>
+</body>
+</html>
