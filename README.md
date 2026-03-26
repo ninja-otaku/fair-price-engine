@@ -1,5 +1,3 @@
----
-
 ```markdown
 # fair-price-engine
 
